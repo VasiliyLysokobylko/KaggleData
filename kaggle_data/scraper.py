@@ -225,11 +225,9 @@ class Tools:
             for file in os.listdir(csv_path):
                 path = os.path.join(csv_path, file)
                 self.cut_csv(path, max_file_size)
-        elif ext in ['.csv'] and max_file_size + 5000000 < os.path.getsize(csv_path):
+        elif ext in ['.csv'] and max_file_size < os.path.getsize(csv_path):
             try:
                 content = open(csv_path, 'r').read(max_file_size)
-                if '"message":"NotFound' in content:
-                    print('NOT_FOUND: ' + csv_path + '\n')
                 cut_content = content[:content.rindex('\n') + len('\n')]
                 with open(csv_path, 'w') as f:
                     f.write(cut_content)
