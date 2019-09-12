@@ -1,4 +1,6 @@
 import json
+import tempfile
+
 import urllib3
 import certifi
 import os
@@ -8,11 +10,14 @@ import html2text
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
 from selenium.webdriver.support.wait import WebDriverWait
+import shutil
+from pathlib import Path
+import zipfile
 
 
 class KaggleScraper:
 
-    def __init__(self,kaggle_email: str, kaggle_password:str, username: str, key: str ):
+    def __init__(self, kaggle_email: str, kaggle_password: str, username: str, key: str):
         self.files_to_download = ['csv']
         self.max_file_size = None
         self.username = username
@@ -46,7 +51,7 @@ class KaggleScraper:
                 try:
                     self.download_competition_item(competition, output_folder)
                 except Exception as e:
-                    print('Failed competition downloading: '+competition['ref']+'\n'+str(e))
+                    print('Failed competition downloading: ' + competition['ref'] + '\n' + str(e))
                 time.sleep(3)
             if len(bucket) == 0:
                 if self.auth_driver is not None:
@@ -96,13 +101,14 @@ class KaggleScraper:
             headers = {'Range': 'bytes=%s-%s' % (0, self.max_file_size)}
         response = self.kaggle_api_call(resource=file_url, method='GET', additional_headers=headers)
         try:
-            if '"message":"TooManyRequests"' in response.data.decode('utf8') or 'You must accept this competition' in response.data.decode('utf8'):
-                time.sleep(60*10)
+            response_data = response.data.decode('utf8')
+            if '"message":"TooManyRequests"' in response_data or 'You must accept this competition' in response_data or '"message":"NotFound' in response_data:
+                time.sleep(60 * 10)
                 self.download_file(file_json=file_json, file_dir=file_dir, competition=competition)
                 print(response.data.decode('utf8'))
                 return
         except Exception as e:
-            print(file_path+'\n'+json.dumps(headers)+'\n'+str(e))
+            print(file_path + '\n' + json.dumps(headers) + '\n' + str(e))
         with open(os.path.abspath(file_path), 'wb') as f:
             f.write(response.data)
 
@@ -164,13 +170,12 @@ class KaggleScraper:
 
         self.auth_driver.get(url)
         try:
-            if len(self.auth_driver.find_elements_by_xpath('/html/body/main/div/div[2]/div/div/div[1]/div[2]/div[1]/div/div/div/div/div/a')) > 0:
+            if len(self.auth_driver.find_elements_by_xpath(
+                    '/html/body/main/div/div[2]/div/div/div[1]/div[2]/div[1]/div/div/div/div/div/a')) > 0:
                 self.auth_driver.find_element_by_xpath(
                     '/html/body/main/div/div[2]/div/div/div[1]/div[2]/div[1]/div/div/div/div/div/a').click()
         except Exception as e:
             print(str(e))
-
-
 
     def driver_wait_for(self, driver, xpath: str, timeout: int):
         WebDriverWait(driver, timeout).until(expected_conditions.presence_of_element_located(
@@ -213,4 +218,57 @@ class KaggleScraper:
         driver.close()
 
 
+class Tools:
+    def cut_csv(self, csv_path: str, max_file_size: int):
+        _, ext = os.path.splitext(csv_path)
+        if os.path.isdir(csv_path):
+            for file in os.listdir(csv_path):
+                path = os.path.join(csv_path, file)
+                self.cut_csv(path, max_file_size)
+        elif ext in ['.csv'] and max_file_size + 5000000 < os.path.getsize(csv_path):
+            try:
+                content = open(csv_path, 'r').read(max_file_size)
+                if '"message":"NotFound' in content:
+                    print('NOT_FOUND: ' + csv_path + '\n')
+                cut_content = content[:content.rindex('\n') + len('\n')]
+                with open(csv_path, 'w') as f:
+                    f.write(cut_content)
+            except Exception as e:
+                print(csv_path + '\n' + str(e))
 
+    def unpack_hidden_archives(self, path: str):
+        if os.path.isdir(path):
+            for file in os.listdir(path):
+                self.unpack_hidden_archives(os.path.join(path, file))
+        is_skip = False
+        report_msg = None
+        try:
+            content = open(path, 'r').read().encode('utf8')
+            is_skip = True
+            content = None
+        except Exception as e:
+            report_msg = 'Trying to unpack: ' + path + '\n' + str(e)
+
+        filename, ext = os.path.splitext(path)
+        if is_skip or ext not in ['.csv']:
+            return
+        print(report_msg)
+        temp_dir = tempfile.mkdtemp()
+        archive_name = None
+        try:
+            archive_name = filename + '.zip'
+            shutil.copyfile(path, archive_name)
+            # shutil.unpack_archive(filename=archive_name, extract_dir=temp_dir)
+            zf = zipfile.ZipFile(archive_name)
+            zf.extractall(path=temp_dir)
+            parent_folder = Path(path).parent
+            for file in os.listdir(temp_dir):
+                shutil.copyfile(
+                    os.path.join(temp_dir, file),
+                    os.path.join(parent_folder, file))
+        except Exception as e:
+            print('UNPACK FAILED: ' + path + '\n' + str(e))
+        finally:
+            shutil.rmtree(temp_dir)
+            if archive_name is not None:
+                os.remove(archive_name)
