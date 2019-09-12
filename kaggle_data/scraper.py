@@ -243,9 +243,8 @@ class Tools:
         is_skip = False
         report_msg = None
         try:
-            content = open(path, 'r').read().encode('utf8')
+            open(path, 'r').read().encode('utf8')
             is_skip = True
-            content = None
         except Exception as e:
             report_msg = 'Trying to unpack: ' + path + '\n' + str(e)
 
@@ -258,7 +257,6 @@ class Tools:
         try:
             archive_name = filename + '.zip'
             shutil.copyfile(path, archive_name)
-            # shutil.unpack_archive(filename=archive_name, extract_dir=temp_dir)
             zf = zipfile.ZipFile(archive_name)
             zf.extractall(path=temp_dir)
             parent_folder = Path(path).parent
